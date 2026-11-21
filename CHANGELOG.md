@@ -99,6 +99,11 @@ tagged release.
 
 ### Changed
 
+- `LogDensity.grad` and `LogDensity.potential`, and their flat versions, work
+  for queries with runtime checks, such as linear solves or index ranges.
+  They functionalize the checks with `checkify` and raise a failed check
+  after the call, instead of failing to stage.
+
 - Linear solves reuse one batched LU factorization in `vmap(value_and_grad)`.
 
 - CPU solves avoid redundant result masks when the caller already guards

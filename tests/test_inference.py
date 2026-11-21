@@ -7,6 +7,7 @@ import jax.numpy as jnp
 import numpy as np
 import pyhf
 import pytest
+from jax.experimental import checkify
 
 from flatppl import CompilationError, Context, flatppl, from_pyhf
 
@@ -652,3 +653,34 @@ def test_a_single_fit_bound_narrows_its_side_alone(
     # Closed form: the Normal likelihood of 0.5 plus log|dmu/du| = u.
     expected = normal(0.5, mu, 1.0) + u
     assert float(density({"mu": jnp.float64(u)})) == pytest.approx(expected, rel=1e-12)
+
+
+@pytest.mark.usefixtures("x64")
+def test_jitted_gradients_and_potentials_raise_failed_runtime_checks() -> None:
+    # linsolve reports a singular matrix through checkify, which jax.jit cannot
+    # stage without functionalizing it.
+    density = flatppl("""
+        t = elementof(reals)
+        inputs = t
+        outputs = -0.5 * t^2 + sum(linsolve(rowstack([[t, 0.0], [0.0, 1.0]]), [1.0, 1.0]))
+    """).logdensity(dtype="float64")
+    assert density.transformed.unconstrained.schema.get("runtime_status")
+    t = jnp.float64(2.0)
+    np.testing.assert_allclose(density(t), -0.5)
+    np.testing.assert_allclose(density.grad(t), -2.25)
+    np.testing.assert_allclose(density.potential(t), 0.5)
+    np.testing.assert_allclose(density.flat.grad(t[None]), [-2.25])
+    np.testing.assert_allclose(density.flat.potential(t[None]), 0.5)
+    zero = jnp.float64(0.0)
+    for call, point in (
+        (density.grad, zero),
+        (density.potential, zero),
+        (density.flat.grad, zero[None]),
+        (density.flat.potential, zero[None]),
+    ):
+        with pytest.raises(checkify.JaxRuntimeError, match="nonsingular matrix"):
+            call(point)
+    # Inside a caller's checkify, the error joins the caller's.
+    error, _ = jax.jit(checkify.checkify(density.grad))(zero)
+    with pytest.raises(checkify.JaxRuntimeError, match="nonsingular matrix"):
+        error.throw()

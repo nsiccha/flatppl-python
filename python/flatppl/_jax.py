@@ -539,6 +539,16 @@ class CompiledFunction:
         jacobian, outputs = jax.jacrev(evaluate, has_aux=True)(values[first])  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
         return outputs, jacobian
 
+    def _reports_checks(self) -> bool:
+        """Whether a call reports runtime checks through ``checkify.check``."""
+        status = self.schema.get("runtime_status")
+        if not status:
+            return False
+        codes = set(status.get("codes", range(1, 10)))
+        if self._checks == "nan":
+            codes.discard(PARAMETER_OUTSIDE_SET)
+        return bool(codes)
+
     def _evaluate(self, values: Mapping[str, Any]) -> Any:
         leaves: list[jax.Array | None] = [None] * self._input_count
         for item in self.schema["inputs"]:

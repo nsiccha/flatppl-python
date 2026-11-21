@@ -68,10 +68,14 @@ class LogDensity:
 
     Attributes:
         fn: The log density of a position. It supports ``jax.jit``,
-            ``jax.grad`` and ``jax.vmap``. Calling the object calls it.
-        grad: The gradient of :attr:`fn`, jitted.
-        potential: The negated log density, jitted. Optimisers and NumPyro
-            minimise this sign.
+            ``jax.grad`` and ``jax.vmap``. Calling the object calls it. A
+            query with runtime checks needs ``checkify.checkify`` around a
+            staged computation, as for
+            :class:`~flatppl.CompiledFunction`.
+        grad: The gradient of :attr:`fn`, jitted. Runtime checks are
+            functionalized and a failed one raises after the call.
+        potential: The negated log density, jitted like :attr:`grad`.
+            Optimisers and NumPyro minimise this sign.
         init: A starting position in the coordinates of :attr:`fn`: a
             converter's initial values for a likelihood that has them,
             otherwise the point at zero unconstrained coordinates, such as 1

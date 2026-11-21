@@ -11,6 +11,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import numpy.typing as npt
+from jax.experimental import checkify
 from jax.flatten_util import ravel_pytree
 
 from .inference import FlatLogDensity, LogDensity
@@ -394,6 +395,27 @@ def _initial(
     return point
 
 
+def _staged[**P, R](function: Callable[P, R], checked: bool) -> Callable[P, R]:
+    """Jit a function of the query, functionalizing its runtime checks.
+
+    ``jax.jit`` cannot stage a ``checkify.check`` by itself. For a query that
+    reports runtime checks, the staged function returns the checks' error and
+    raises it after the call, so a failed check raises
+    ``checkify.JaxRuntimeError`` as in an eager call. Under a caller's own
+    ``checkify.checkify``, the error joins the caller's.
+    """
+    if not checked:
+        return jax.jit(function)  # pyright: ignore[reportUnknownMemberType]
+    functionalized = jax.jit(checkify.checkify(function))  # pyright: ignore[reportUnknownMemberType]
+
+    def call(*args: P.args, **kwargs: P.kwargs) -> R:
+        error, value = functionalized(*args, **kwargs)  # pyright: ignore[reportUnknownVariableType]
+        error.throw()  # pyright: ignore[reportUnknownMemberType]
+        return value  # pyright: ignore[reportUnknownVariableType]
+
+    return call
+
+
 def _query(
     module: Module, measure: str, bounds: bool
 ) -> tuple[Module, dict[str, Parameter], _Fixed]:
@@ -463,8 +485,7 @@ def build(
     fn = transformed.unconstrained if unconstrained else transformed.constrained
     init = free if unconstrained else point
     shapes = _model_shapes(schema, name if schema["kind"] == "tensor" else "")
-
-    grad = jax.jit(jax.grad(fn))  # pyright: ignore[reportUnknownMemberType]
+    checked = fn._reports_checks()  # pyright: ignore[reportPrivateUsage]
 
     def negated(position: Any) -> jax.Array:
         return -fn(position)
@@ -479,16 +500,16 @@ def build(
 
     flat = FlatLogDensity(
         fn=flat_fn,
-        grad=jax.jit(jax.grad(flat_fn)),  # pyright: ignore[reportUnknownMemberType]
-        potential=jax.jit(flat_negated),  # pyright: ignore[reportUnknownMemberType]
+        grad=_staged(jax.grad(flat_fn), checked),  # pyright: ignore[reportUnknownMemberType, reportUnknownArgumentType]
+        potential=_staged(flat_negated, checked),
         init=vector,
         unravel=unravel,
         names=_flat_names(packed, name),
     )
     return LogDensity(
         fn=fn,
-        grad=grad,
-        potential=jax.jit(negated),  # pyright: ignore[reportUnknownMemberType]
+        grad=_staged(jax.grad(fn), checked),  # pyright: ignore[reportUnknownMemberType, reportUnknownArgumentType]
+        potential=_staged(negated, checked),
         init=init,
         constrain=transformed.constrain,
         unconstrain=transformed.unconstrain,
