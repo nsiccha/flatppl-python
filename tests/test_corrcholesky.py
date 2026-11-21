@@ -26,22 +26,30 @@ def x64() -> Iterator[None]:
 
 
 def stan_cholesky_corr_constrain(y: jax.Array, n: int) -> tuple[jax.Array, jax.Array]:
-    """Stan's chart: row-major strictly lower coordinates and the log-Jacobian."""
+    """Stan's chart: row-major strictly lower coordinates and the log-Jacobian.
+
+    Stan fills each row left to right. This fills one column of every row at a
+    time, with the same arithmetic per entry: a row's running sum of squares
+    scales its next entry by ``sqrt(1 - sum_sqs)``, adds ``0.5 * log1m(sum_sqs)``
+    before each entry after the first, and sets its diagonal to
+    ``sqrt(1 - sum_sqs)``.
+    """
     z = jnp.tanh(y)
     lp = jnp.sum(jnp.log1p(-(z**2)))
-    rows = [jnp.zeros(n, y.dtype).at[0].set(1.0)]
-    k = 0
-    for i in range(1, n):
-        row = jnp.zeros(n, y.dtype).at[0].set(z[k])
-        k += 1
-        sum_sqs = z[k - 1] ** 2
-        for j in range(1, i):
-            lp += 0.5 * jnp.log1p(-sum_sqs)
-            row = row.at[j].set(z[k] * jnp.sqrt(1.0 - sum_sqs))
-            k += 1
-            sum_sqs += row[j] ** 2
-        rows.append(row.at[i].set(jnp.sqrt(1.0 - sum_sqs)))
-    return jnp.stack(rows), lp
+    lower, columns = np.tril_indices(n, -1)
+    strict = jnp.zeros((n, n), y.dtype).at[lower, columns].set(z)
+    row = np.arange(n)
+    sum_sqs = jnp.zeros(n, y.dtype)
+    factor: list[jax.Array] = []
+    for j in range(n):
+        below = row > j
+        if j > 0:
+            lp += jnp.sum(jnp.where(below, 0.5 * jnp.log1p(-sum_sqs), 0.0))
+        entry = jnp.where(below, strict[:, j] * jnp.sqrt(1.0 - sum_sqs), 0.0)
+        diagonal = jnp.where(row == j, jnp.sqrt(1.0 - sum_sqs), 0.0)
+        factor.append(entry + diagonal)
+        sum_sqs += entry**2
+    return jnp.stack(factor, axis=1), lp
 
 
 def stan_lkj_corr_cholesky_lpdf(factor: jax.Array, eta: float) -> jax.Array:
