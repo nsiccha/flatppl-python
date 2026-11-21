@@ -7,6 +7,12 @@ tagged release.
 
 ### Added
 
+- `corrcholesky(n)` parameters, the Cholesky factors of correlation matrices
+  that `LKJCholesky(n, eta)` is defined on, work in `Module.logdensity`,
+  generated queries and measure supports. Positions use the compiler's
+  `n(n - 1)/2` tanh partial-correlation coordinates, and bounds give each
+  factor entry's range.
+
 - Complex scalars and arrays can serve as query arguments, results, and fixed
   values. Supported complex queries use real component derivatives through JAX.
   Forward and reverse derivatives support scans with complex state and

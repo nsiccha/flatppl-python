@@ -67,10 +67,16 @@ version transforms inputs without adding a density correction. Use
 | `ordered(n)` | First entry and log gaps |
 | `zerosum(n)` | `n - 1` coordinates |
 | `stdsimplex(n)` | `n - 1` stick-breaking coordinates |
+| `corrcholesky(n)` | `n(n - 1)/2` tanh partial correlations, as Stan's `cholesky_factor_corr` |
 | Records, tables and supported products/arrays | Composed component charts |
 
+`corrcholesky(n)` holds the `n × n` Cholesky factors of correlation matrices,
+the support of `LKJCholesky(n, eta)`. Its free coordinates are the strictly
+lower-triangular entries in row-major order, the order Stan's
+`cholesky_corr_constrain` reads.
+
 Arrays must contain scalar domains. Products may contain scalars or flat
-vectors. Length-one simplex/zero-sum domains, arrays with structured cells and
+vectors. Length-one simplex/zero-sum/correlation-factor domains, arrays with structured cells and
 discrete domains are unsupported. Bind sizes and bounds before compilation.
 The query must have one continuous `elementof` input. Bind fixed data with
 `.set(...)` first.

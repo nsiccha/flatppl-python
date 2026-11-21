@@ -71,19 +71,40 @@ def _elements(
         return lo, hi
     if kind == "complexes":
         return [-math.inf, -math.inf], [math.inf, math.inf]
-    count = 1
-    if kind in ("ordered", "zerosum", "stdsimplex"):
-        count = domain["n"]
-        limits = (0.0, 1.0) if kind == "stdsimplex" else (-math.inf, math.inf)
+    if kind == "corrcholesky":
+        lower, upper = _cholesky_hull(domain["n"])
     else:
-        limits = _limits(domain)
-        if limits is None:
-            raise ValueError(f"no element bounds for the set {kind!r}")
-    lower, upper = limits
+        count = 1
+        if kind in ("ordered", "zerosum", "stdsimplex"):
+            count = domain["n"]
+            limits = (0.0, 1.0) if kind == "stdsimplex" else (-math.inf, math.inf)
+        else:
+            limits = _limits(domain)
+            if limits is None:
+                raise ValueError(f"no element bounds for the set {kind!r}")
+        lower, upper = [limits[0]] * count, [limits[1]] * count
     if split_complex:
         # In a positional product, a real slot embeds with imaginary part zero.
-        return [lower, 0.0] * count, [upper, 0.0] * count
-    return [lower] * count, [upper] * count
+        return _interleave_zero(lower), _interleave_zero(upper)
+    return lower, upper
+
+
+def _cholesky_hull(n: int) -> tuple[list[float], list[float]]:
+    """Row-major element bounds of the n x n Cholesky factors of correlations.
+
+    Unit-norm rows keep the entries below the diagonal in [-1, 1] and the
+    positive diagonal in (0, 1]. The first row is exactly ``[1, 0, ...]`` and
+    the entries above the diagonal are zero.
+    """
+    lower = [-1.0 if j < i else 0.0 for i in range(n) for j in range(n)]
+    upper = [1.0 if j <= i else 0.0 for i in range(n) for j in range(n)]
+    if n:
+        lower[0] = 1.0
+    return lower, upper
+
+
+def _interleave_zero(values: list[float]) -> list[float]:
+    return [part for value in values for part in (value, 0.0)]
 
 
 def _field_domains(domain: Mapping[str, Any]) -> dict[str, Mapping[str, Any]]:
