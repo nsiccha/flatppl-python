@@ -99,6 +99,12 @@ tagged release.
 
 ### Changed
 
+- Compiled queries over fixed data compute their data-only likelihood
+  summaries, such as a regression's QR factorization, once when compiled
+  instead of on every call. Each call then scores without the setup's loops.
+  Fixed data that fail a runtime check of that setup raise when the query is
+  compiled, since the failure would repeat on every call.
+
 - `LogDensity.grad` and `LogDensity.potential`, and their flat versions, work
   for queries with runtime checks, such as linear solves or index ranges.
   They functionalize the checks with `checkify` and raise a failed check

@@ -1011,8 +1011,10 @@ class Module:
                 give the same values.
             sufficient_statistics: Reduce independent likelihood factors to
                 data-only summaries. ``False`` keeps ordinary factor scoring.
-                Runtime data requires :meth:`prepare_likelihood` to retain
-                summaries across score calls.
+                Summaries of fixed data, such as a regression's QR
+                factorization, are computed once here instead of on every
+                call. Runtime data requires :meth:`prepare_likelihood` to
+                retain summaries across score calls.
             checks: How a distribution parameter outside its declared value
                 set, such as ``sigma <= 0`` for ``Normal``, reports. ``"nan"``
                 makes that call's floating-point results NaN, needs no
@@ -1027,8 +1029,9 @@ class Module:
         Raises:
             CompilationError: The module does not lower to a query.
             TypeError: ``integration`` is not an :class:`Integration`.
-            ValueError: The dtype is unsupported or needs JAX x64, or
-                ``checks`` is neither ``"nan"`` nor ``"raise"``.
+            ValueError: The dtype is unsupported or needs JAX x64,
+                ``checks`` is neither ``"nan"`` nor ``"raise"``, or the fixed
+                data fail a runtime check while their summaries are computed.
 
         Example:
             >>> import jax
@@ -1074,6 +1077,7 @@ class Module:
                         batch,
                         target_name,
                         sufficient_statistics=sufficient_statistics,
+                        prepare_fixed_data=sufficient_statistics,
                     )
                 )
             return self._exports[key]
