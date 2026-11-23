@@ -11,7 +11,11 @@ tagged release.
   CPython 3.14 for Linux x86_64. That target now installs an `enzyme-ad` wheel
   that reverses `stablehlo.while` loops with data-dependent trip counts, like
   odesolve's adaptive steps. Other targets keep the alpha 23 wheels, which
-  refuse such gradients.
+  refuse such gradients. The bundled compiler keeps the step-size controller
+  out of odesolve derivatives, so gradients follow the ODE solution rather
+  than the solver's step choices, and they stay finite at a steady state.
+  Very near an exact steady state, such as a Lotka-Volterra equilibrium, they
+  are still inaccurate.
 
 - `corrcholesky(n)` parameters, the Cholesky factors of correlation matrices
   that `LKJCholesky(n, eta)` is defined on, work in `Module.logdensity`,
