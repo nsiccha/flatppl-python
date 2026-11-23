@@ -104,6 +104,12 @@ tagged release.
   instead of on every call. Each call then scores without the setup's loops.
   Fixed data that fail a runtime check of that setup raise when the query is
   compiled, since the failure would repeat on every call.
+  Regression data declared on `reals` or `posreals` reduce like data with
+  bounded entries, whether loaded with `load_data` or bound with `Module.set`:
+  the bundled compiler proves them finite from their values.
+
+- Large fixed datasets compile in less memory: the bundled compiler holds
+  fixed data as packed vectors.
 
 - `LogDensity.grad` and `LogDensity.potential`, and their flat versions, work
   for queries with runtime checks, such as linear solves or index ranges.

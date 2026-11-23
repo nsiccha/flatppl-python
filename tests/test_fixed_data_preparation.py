@@ -1,8 +1,9 @@
 """Summaries of fixed data are prepared once per compile, not on every call.
 
-A Gaussian regression on loaded rows with bounded entries reduces to data-only
-summaries: a bounded QR factorization of its design. The compiler moves their
-setup, with its loops and its runtime checks, into a preparation program. A
+A Gaussian regression on loaded rows, whether they declare bounded entries or
+reals, reduces to data-only summaries: a bounded QR factorization of its design.
+The compiler moves their setup, with its loops and its runtime checks, into a
+preparation program. A
 compiled function runs it once, checks its status, and passes its outputs after
 the declared inputs of every call.
 """
@@ -27,6 +28,13 @@ ROWS = 40
 DATA = f"""
 X = load_data("X.json", cartpow(interval(-100.0, 100.0), [{ROWS}, 3]))
 y = load_data("y.json", cartpow(interval(-100.0, 100.0), {ROWS}))
+"""
+
+# PosteriorDB declares loaded regression data on reals; the compiler proves them
+# finite from their loaded values.
+REALS = f"""
+X = load_data("X.json", cartpow(reals, [{ROWS}, 3]))
+y = load_data("y.json", cartpow(reals, {ROWS}))
 """
 
 REGRESSION = """
@@ -72,15 +80,17 @@ def closed_form(beta: np.ndarray, sigma: float) -> tuple[float, np.ndarray, floa
     )
 
 
-def loaded(directory: Path, query: str, design: np.ndarray | None = None) -> Module:
-    """``query`` over the rows of :func:`data`, loaded as fixed data."""
+def loaded(
+    directory: Path, query: str, design: np.ndarray | None = None, source: str = DATA
+) -> Module:
+    """``query`` over the rows of :func:`data`, loaded by ``source``."""
     rows, response = data()
     if design is not None:
         rows = design
     (directory / "X.json").write_text(json.dumps(rows.tolist()))
     (directory / "y.json").write_text(json.dumps(response.tolist()))
     path = directory / "query.flatppl"
-    path.write_text(DATA + query)
+    path.write_text(source + query)
     return load(path)
 
 
@@ -180,6 +190,51 @@ def test_transformed_log_densities_use_the_prepared_program(tmp_path: Path) -> N
         )
 
 
+def test_regression_data_on_reals_are_prepared(tmp_path: Path) -> None:
+    # Loaded or bound with Module.set, data on reals are proven finite from
+    # their values and reduce like bounded rows.
+    design, response = data()
+    bound = flatppl(
+        f"""
+        X = external(cartpow(reals, [{ROWS}, 3]))
+        y = external(cartpow(reals, {ROWS}))
+        """
+        + REGRESSION
+    ).set(X=design, y=response)
+    for module in (loaded(tmp_path, REGRESSION, source=REALS), bound):
+        function = module.compile(dtype="float64")
+        reference = unprepared(module)
+        assert function._prepared  # pyright: ignore[reportPrivateUsage]
+        assert "stablehlo.while" not in function.stablehlo
+        assert "stablehlo.while" in reference.stablehlo
+        gradient = jax.grad(function, argnums=(0, 1))
+        for beta, sigma in POINTS:
+            value, beta_gradient, sigma_gradient = closed_form(beta, sigma)
+            assert float(function(beta, sigma)) == pytest.approx(value, rel=1e-12)
+            assert float(function(beta, sigma)) == pytest.approx(
+                float(reference(beta, sigma)), rel=1e-13
+            )
+            d_beta, d_sigma = gradient(beta, sigma)
+            np.testing.assert_allclose(d_beta, beta_gradient, rtol=1e-11)
+            assert float(d_sigma) == pytest.approx(sigma_gradient, rel=1e-11)
+
+    transformed = loaded(tmp_path, RECORD, source=REALS).compile_transformed(
+        logdensity=True, dtype="float64"
+    )
+    assert transformed.unconstrained._prepared  # pyright: ignore[reportPrivateUsage]
+    assert "stablehlo.while" not in transformed.unconstrained.stablehlo
+    value_and_grad = jax.jit(jax.value_and_grad(transformed.unconstrained))
+    for beta, sigma in POINTS:
+        u = {"beta": jnp.asarray(beta), "sigma": jnp.log(sigma)}
+        value, gradient = value_and_grad(u)
+        expected, beta_gradient, sigma_gradient = closed_form(beta, sigma)
+        assert float(value) == pytest.approx(expected + math.log(sigma), rel=1e-12)
+        np.testing.assert_allclose(gradient["beta"], beta_gradient, rtol=1e-11)
+        assert float(gradient["sigma"]) == pytest.approx(
+            sigma * sigma_gradient + 1, rel=1e-11
+        )
+
+
 def test_queries_without_separable_summaries_have_no_preparation(
     tmp_path: Path,
 ) -> None:
@@ -194,24 +249,6 @@ def test_queries_without_separable_summaries_have_no_preparation(
         dtype="float64", sufficient_statistics=False
     )
     assert ordinary._prepared == ()  # pyright: ignore[reportPrivateUsage]
-    # Unbounded rows have no bounded QR summary; they score as before.
-    design, response = data()
-    unbounded = (
-        flatppl(
-            f"""
-            X = external(cartpow(reals, [{ROWS}, 3]))
-            y = external(cartpow(reals, {ROWS}))
-            """
-            + REGRESSION
-        )
-        .set(X=design, y=response)
-        .compile(dtype="float64")
-    )
-    assert unbounded._prepared == ()  # pyright: ignore[reportPrivateUsage]
-    beta, sigma = POINTS[0]
-    assert float(unbounded(beta, sigma)) == pytest.approx(
-        closed_form(beta, sigma)[0], rel=1e-12
-    )
 
 
 def preparation(status: int) -> Export:
