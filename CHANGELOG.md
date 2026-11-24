@@ -8,14 +8,14 @@ tagged release.
 ### Added
 
 - Reverse-mode gradients, such as `LogDensity.grad`, work through `odesolve` on
-  CPython 3.14 for Linux x86_64. That target now installs an `enzyme-ad` wheel
-  that reverses `stablehlo.while` loops with data-dependent trip counts, like
-  odesolve's adaptive steps. Other targets keep the alpha 23 wheels, which
-  refuse such gradients. The bundled compiler keeps the step-size controller
-  out of odesolve derivatives, so gradients follow the ODE solution rather
-  than the solver's step choices, and they stay finite at a steady state.
-  Very near an exact steady state, such as a Lotka-Volterra equilibrium, they
-  are still inaccurate.
+  every supported target: CPython 3.12 to 3.15 on Linux x86_64, Linux ARM64 and
+  macOS ARM64. Each installs an `enzyme-ad` wheel that reverses
+  `stablehlo.while` loops with data-dependent trip counts, like odesolve's
+  adaptive steps; the alpha 23 wheels refused such gradients. The bundled
+  compiler keeps the step-size controller out of odesolve derivatives, so
+  gradients follow the ODE solution rather than the solver's step choices, and
+  they stay finite at a steady state. Very near an exact steady state, such as
+  a Lotka-Volterra equilibrium, they are still inaccurate.
 
 - `ode_sensitivity_control=True` on `Module.compile`, `compile_transformed`
   and `logdensity` differentiates `odesolve` the way Stan's gradient does: on
@@ -30,11 +30,10 @@ tagged release.
   `enzyme-ad` wheel loads Enzyme's MLIR dialect; the other targets' wheels
   refuse such a program. A query that draws random values keeps its draws.
 
-- On CPython 3.14 for Linux x86_64, gradients of densities that compare a
-  Boolean array with an integer, as in `ifelse.(z .== 1, p, 0.0)`, are right.
-  The alpha 23 wheels on the other targets fold that comparison to `false`
-  under differentiation, so `value_and_grad` returns `(-inf, 0)` there while
-  the plain value is right; `boolean.(z)` avoids the comparison.
+- Gradients of densities that compare a Boolean array with an integer, as in
+  `ifelse.(z .== 1, p, 0.0)`, are right on every supported target. The alpha
+  23 wheels folded that comparison to `false` under differentiation, so
+  `value_and_grad` returned `(-inf, 0)` while the plain value was right.
 
 - `corrcholesky(n)` parameters, the Cholesky factors of correlation matrices
   that `LKJCholesky(n, eta)` is defined on, work in `Module.logdensity`,
@@ -128,11 +127,10 @@ tagged release.
 
 ### Changed
 
-- On CPython 3.14 for Linux x86_64, derivatives of real symmetric `eigh` and
-  `eigvalsh` use a closed-form rule instead of differentiating the Jacobi
-  iteration. A 30 by 30 matrix's value and gradient take about 3.5 ms instead
-  of about 175 ms. Values do not change, and the other targets keep
-  differentiating the iteration.
+- Derivatives of real symmetric `eigh` and `eigvalsh` use a closed-form rule
+  instead of differentiating the Jacobi iteration. A 30 by 30 matrix's value
+  and gradient take about 3.5 ms instead of about 175 ms. Values do not
+  change.
 
 - Derivatives of `eigh` eigenvectors and `svd` singular vectors are right
   where an off-diagonal entry is exactly zero, such as at a diagonal matrix
