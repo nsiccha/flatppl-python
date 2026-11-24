@@ -66,6 +66,43 @@ def test_matrix_exponential_nilpotent_adjoint(
         )
 
 
+def test_eigh_vector_derivatives_at_a_diagonal_matrix() -> None:
+    # Every off-diagonal entry of a diagonal matrix is exactly zero. A Jacobi
+    # rotation built only from rotated nonzero entries is then constant in the
+    # matrix, which zeroes the eigenvector derivatives there.
+    with jax.enable_x64():
+        function = flatppl("""
+            e = standard_module("ext-linear-algebra", "0.1")
+            A = external(cartpow(reals, [4, 4]))
+            inputs = A
+            outputs = e.eigh(A).vectors
+        """).compile(dtype="float64")
+        rng = np.random.default_rng(7)
+        weights = jnp.asarray(rng.normal(size=4))
+        scales = jnp.arange(1, 5) / 4
+        direction = rng.normal(size=(4, 4))
+        direction = jnp.asarray(direction + direction.T)
+
+        # The weighted squared projections do not depend on eigenvector signs.
+        def objective(vectors: jax.Array) -> jax.Array:
+            return jnp.sum(scales * (weights @ vectors) ** 2)
+
+        def compiled(a: jax.Array) -> jax.Array:
+            return objective(function(a))
+
+        def oracle(a: jax.Array) -> jax.Array:
+            return objective(jnp.linalg.eigh(a)[1])
+
+        diagonal = jnp.diag(jnp.array([1.0, 2.0, 3.5, 5.0]))
+        for point in (diagonal, diagonal + 0.1 * direction):
+            expected = jax.jvp(oracle, (point,), (direction,))[1]
+            reverse = jnp.sum(jax.grad(compiled)(point) * direction)
+            forward = jax.jvp(compiled, (point,), (direction,))[1]
+            assert abs(float(expected)) > 0.05
+            np.testing.assert_allclose(reverse, expected, rtol=1e-10)
+            np.testing.assert_allclose(forward, expected, rtol=1e-10)
+
+
 def test_uniform_unitinterval_scores_boundaries_and_batches() -> None:
     function = flatppl("""
         point = external(reals)

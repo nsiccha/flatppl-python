@@ -109,6 +109,13 @@ tagged release.
 
 ### Changed
 
+- Derivatives of `eigh` eigenvectors and `svd` singular vectors are right
+  where an off-diagonal entry is exactly zero, such as at a diagonal matrix
+  or at orthogonal columns. The bundled compiler used to leave those pairs
+  unrotated, so forward and reverse derivatives of anything built on the
+  vectors came out as zero there. Eigenvalues and singular values were not
+  affected.
+
 - Compiled queries over fixed data compute their data-only likelihood
   summaries, such as a regression's QR factorization, once when compiled
   instead of on every call. Each call then scores without the setup's loops.
