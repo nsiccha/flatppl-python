@@ -23,7 +23,7 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from flatppl import CompilationError, flatppl
+from flatppl import flatppl
 
 # pyproject.toml declares a wheel with this capability only for CPython 3.14 on
 # Linux x86_64. The other targets' alpha 23 wheels refuse with "WhileOp does not
@@ -178,10 +178,10 @@ def test_sensitivity_control_keeps_the_value(values: list[float]) -> None:
 
 @pytest.mark.xfail(
     strict=True,
-    reason="the compiler panics instead of refusing sensitivity control "
-    "for a query that draws random values",
+    reason="the compiler panics on sensitivity control in a query that draws "
+    "random values",
 )
-def test_sensitivity_control_refuses_a_query_that_draws() -> None:
+def test_sensitivity_control_keeps_the_draws_of_a_query_that_draws() -> None:
     query = flatppl("""
         decay(t, z, th) = [-th * z[1]]
         state = rnginit(0)
@@ -189,5 +189,10 @@ def test_sensitivity_control_refuses_a_query_that_draws() -> None:
         inputs = (state, k)
         outputs = rand(Normal(odesolve(decay, [1.0], 0.0, [1.0], k)[1][1], 1.0), state)
     """)
-    with pytest.raises(CompilationError, match="not to sample mode"):
-        query.compile(autodiff=False, ode_sensitivity_control=True)
+    key = jnp.array([1729, 0], dtype=jnp.uint64)
+    default, controlled = (
+        query.compile(autodiff=False, ode_sensitivity_control=control)(key, 0.5)
+        for control in (False, True)
+    )
+    np.testing.assert_array_equal(np.asarray(controlled[0]), np.asarray(default[0]))
+    np.testing.assert_array_equal(np.asarray(controlled[1]), np.asarray(default[1]))

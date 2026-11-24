@@ -28,7 +28,7 @@ tagged release.
   so a two-state Lotka-Volterra density takes about four times as long, value
   alone or with its gradient. It needs CPython 3.14 on Linux x86_64, whose
   `enzyme-ad` wheel loads Enzyme's MLIR dialect; the other targets' wheels
-  refuse such a program. Queries that draw random values do not support it.
+  refuse such a program. Queries that draw random values cannot use it yet.
 
 - On CPython 3.14 for Linux x86_64, gradients of densities that compare a
   Boolean array with an integer, as in `ifelse.(z .== 1, p, 0.0)`, are right.
