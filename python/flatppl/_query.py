@@ -6,7 +6,7 @@ import re
 from collections.abc import Callable, Mapping, Sequence
 from typing import TYPE_CHECKING, Any, Literal
 
-from ._api import _VECTOR_SETS  # pyright: ignore[reportPrivateUsage]
+from ._api import _SIZED_SETS, _VECTOR_SETS  # pyright: ignore[reportPrivateUsage]
 from ._graph import closure
 
 if TYPE_CHECKING:
@@ -52,7 +52,7 @@ def _contains(
 
 
 def _dynamic(domain: Mapping[str, Any]) -> bool:
-    if domain["set"] in _VECTOR_SETS:
+    if domain["set"] in _SIZED_SETS:
         return domain["n"] is None
     return domain["set"] == "cartpow" and None in domain["shape"]
 

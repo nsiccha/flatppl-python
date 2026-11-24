@@ -11,6 +11,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import numpy.typing as npt
+from jax.experimental import checkify
 from jax.flatten_util import ravel_pytree
 
 from .inference import FlatLogDensity, LogDensity
@@ -71,19 +72,40 @@ def _elements(
         return lo, hi
     if kind == "complexes":
         return [-math.inf, -math.inf], [math.inf, math.inf]
-    count = 1
-    if kind in ("ordered", "zerosum", "stdsimplex"):
-        count = domain["n"]
-        limits = (0.0, 1.0) if kind == "stdsimplex" else (-math.inf, math.inf)
+    if kind == "corrcholesky":
+        lower, upper = _cholesky_hull(domain["n"])
     else:
-        limits = _limits(domain)
-        if limits is None:
-            raise ValueError(f"no element bounds for the set {kind!r}")
-    lower, upper = limits
+        count = 1
+        if kind in ("ordered", "zerosum", "stdsimplex"):
+            count = domain["n"]
+            limits = (0.0, 1.0) if kind == "stdsimplex" else (-math.inf, math.inf)
+        else:
+            limits = _limits(domain)
+            if limits is None:
+                raise ValueError(f"no element bounds for the set {kind!r}")
+        lower, upper = [limits[0]] * count, [limits[1]] * count
     if split_complex:
         # In a positional product, a real slot embeds with imaginary part zero.
-        return [lower, 0.0] * count, [upper, 0.0] * count
-    return [lower] * count, [upper] * count
+        return _interleave_zero(lower), _interleave_zero(upper)
+    return lower, upper
+
+
+def _cholesky_hull(n: int) -> tuple[list[float], list[float]]:
+    """Row-major element bounds of the n x n Cholesky factors of correlations.
+
+    Unit-norm rows keep the entries below the diagonal in [-1, 1] and the
+    positive diagonal in (0, 1]. The first row is exactly ``[1, 0, ...]`` and
+    the entries above the diagonal are zero.
+    """
+    lower = [-1.0 if j < i else 0.0 for i in range(n) for j in range(n)]
+    upper = [1.0 if j <= i else 0.0 for i in range(n) for j in range(n)]
+    if n:
+        lower[0] = 1.0
+    return lower, upper
+
+
+def _interleave_zero(values: list[float]) -> list[float]:
+    return [part for value in values for part in (value, 0.0)]
 
 
 def _field_domains(domain: Mapping[str, Any]) -> dict[str, Mapping[str, Any]]:
@@ -373,6 +395,27 @@ def _initial(
     return point
 
 
+def _staged[**P, R](function: Callable[P, R], checked: bool) -> Callable[P, R]:
+    """Jit a function of the query, functionalizing its runtime checks.
+
+    ``jax.jit`` cannot stage a ``checkify.check`` by itself. For a query that
+    reports runtime checks, the staged function returns the checks' error and
+    raises it after the call, so a failed check raises
+    ``checkify.JaxRuntimeError`` as in an eager call. Under a caller's own
+    ``checkify.checkify``, the error joins the caller's.
+    """
+    if not checked:
+        return jax.jit(function)  # pyright: ignore[reportUnknownMemberType]
+    functionalized = jax.jit(checkify.checkify(function))  # pyright: ignore[reportUnknownMemberType]
+
+    def call(*args: P.args, **kwargs: P.kwargs) -> R:
+        error, value = functionalized(*args, **kwargs)  # pyright: ignore[reportUnknownVariableType]
+        error.throw()  # pyright: ignore[reportUnknownMemberType]
+        return value  # pyright: ignore[reportUnknownVariableType]
+
+    return call
+
+
 def _query(
     module: Module, measure: str, bounds: bool
 ) -> tuple[Module, dict[str, Parameter], _Fixed]:
@@ -442,8 +485,7 @@ def build(
     fn = transformed.unconstrained if unconstrained else transformed.constrained
     init = free if unconstrained else point
     shapes = _model_shapes(schema, name if schema["kind"] == "tensor" else "")
-
-    grad = jax.jit(jax.grad(fn))  # pyright: ignore[reportUnknownMemberType]
+    checked = fn._reports_checks()  # pyright: ignore[reportPrivateUsage]
 
     def negated(position: Any) -> jax.Array:
         return -fn(position)
@@ -458,16 +500,16 @@ def build(
 
     flat = FlatLogDensity(
         fn=flat_fn,
-        grad=jax.jit(jax.grad(flat_fn)),  # pyright: ignore[reportUnknownMemberType]
-        potential=jax.jit(flat_negated),  # pyright: ignore[reportUnknownMemberType]
+        grad=_staged(jax.grad(flat_fn), checked),  # pyright: ignore[reportUnknownMemberType, reportUnknownArgumentType]
+        potential=_staged(flat_negated, checked),
         init=vector,
         unravel=unravel,
         names=_flat_names(packed, name),
     )
     return LogDensity(
         fn=fn,
-        grad=grad,
-        potential=jax.jit(negated),  # pyright: ignore[reportUnknownMemberType]
+        grad=_staged(jax.grad(fn), checked),  # pyright: ignore[reportUnknownMemberType, reportUnknownArgumentType]
+        potential=_staged(negated, checked),
         init=init,
         constrain=transformed.constrain,
         unconstrain=transformed.unconstrain,

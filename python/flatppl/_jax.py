@@ -357,11 +357,59 @@ def _compiled_call(
         return program
 
     count = sum(1 for item in exported["inputs"] for _ in _leaves(item["value"]))
+    if preparation := exported.get("preparation"):
+        count += sum(1 for _ in _leaves(preparation["output"]))
     return specialize((), ((),) * count)
 
 
 #: Device status for a distribution parameter outside its declared value set.
 PARAMETER_OUTSIDE_SET = 9
+
+#: What each nonzero device status code reports.
+_STATUS_MESSAGES: dict[int, str] = {
+    1: "FlatPPL index out of range",
+    2: "FlatPPL integer conversion exceeds the target width",
+    3: "FlatPPL quantile probability must be in [0, 1]",
+    4: "FlatPPL linear solve requires a nonsingular matrix",
+    5: "FlatPPL uniform variate must be in [0, 1]",
+    6: "FlatPPL RNG seed is outside its valid range",
+    7: "FlatPPL categorical probabilities need finite, nonnegative values "
+    "with a positive total",
+    8: "FlatPPL bin edges must be strictly increasing",
+    PARAMETER_OUTSIDE_SET: "FlatPPL distribution parameter is outside its declared "
+    "value set",
+    10: "FlatPPL numerical algorithm did not converge",
+    11: "FlatPPL eigenvalue extrema require a nonempty real spectrum",
+    12: "FlatPPL numeric function arguments are outside their declared domain",
+}
+_UNKNOWN_STATUS = "Unknown FlatPPL runtime error"
+
+
+def _prepare(preparation: Export) -> tuple[jax.Array, ...]:
+    """Run a fixed-data likelihood preparation once and check its status.
+
+    The preparation has no inputs: it computes the data-only summaries that the
+    scoring program takes after its declared input leaves. Its checks see only
+    fixed data, so a failure would repeat on every call and raises here.
+    """
+    source = preparation["stablehlo"]
+
+    @jax.jit  # pyright: ignore[reportUnknownMemberType]
+    def run() -> tuple[jax.Array, ...]:
+        return tuple(hlo_call(source=source))
+
+    results = cast(tuple[jax.Array, ...], run())
+    status = preparation.get("runtime_status")
+    if not status:
+        return results
+    index = int(status["index"])
+    codes = np.asarray(results[index], dtype=np.int64)
+    failed = codes[codes != 0]
+    if failed.size:
+        code = int(failed.flat[0])
+        message = _STATUS_MESSAGES.get(code, _UNKNOWN_STATUS)
+        raise ValueError(f"the fixed data fail a check of the query: {message}")
+    return results[:index] + results[index + 1 :]
 
 
 def _nan_where(invalid: jax.Array, leaf: jax.Array) -> jax.Array:
@@ -373,50 +421,10 @@ def _nan_where(invalid: jax.Array, leaf: jax.Array) -> jax.Array:
 
 
 def _check_status(error: jax.Array) -> None:
-    checkify.check(jnp.all(error != 1), "FlatPPL index out of range")  # pyright: ignore[reportUnknownMemberType]
+    for code, message in _STATUS_MESSAGES.items():
+        checkify.check(jnp.all(error != code), message)  # pyright: ignore[reportUnknownMemberType]
     checkify.check(  # pyright: ignore[reportUnknownMemberType]
-        jnp.all(error != 2),
-        "FlatPPL integer conversion exceeds the target width",
-    )
-    checkify.check(  # pyright: ignore[reportUnknownMemberType]
-        jnp.all(error != 3), "FlatPPL quantile probability must be in [0, 1]"
-    )
-    checkify.check(  # pyright: ignore[reportUnknownMemberType]
-        jnp.all(error != 4),
-        "FlatPPL linear solve requires a nonsingular matrix",
-    )
-    checkify.check(  # pyright: ignore[reportUnknownMemberType]
-        jnp.all(error != 5), "FlatPPL uniform variate must be in [0, 1]"
-    )
-    checkify.check(  # pyright: ignore[reportUnknownMemberType]
-        jnp.all(error != 6), "FlatPPL RNG seed is outside its valid range"
-    )
-    checkify.check(  # pyright: ignore[reportUnknownMemberType]
-        jnp.all(error != 7),
-        "FlatPPL categorical probabilities need finite, nonnegative values "
-        "with a positive total",
-    )
-    checkify.check(  # pyright: ignore[reportUnknownMemberType]
-        jnp.all(error != 8), "FlatPPL bin edges must be strictly increasing"
-    )
-    checkify.check(  # pyright: ignore[reportUnknownMemberType]
-        jnp.all(error != PARAMETER_OUTSIDE_SET),
-        "FlatPPL distribution parameter is outside its declared value set",
-    )
-    checkify.check(  # pyright: ignore[reportUnknownMemberType]
-        jnp.all(error != 10), "FlatPPL numerical algorithm did not converge"
-    )
-    checkify.check(  # pyright: ignore[reportUnknownMemberType]
-        jnp.all(error != 11),
-        "FlatPPL eigenvalue extrema require a nonempty real spectrum",
-    )
-    checkify.check(  # pyright: ignore[reportUnknownMemberType]
-        jnp.all(error != 12),
-        "FlatPPL numeric function arguments are outside their declared domain",
-    )
-    checkify.check(  # pyright: ignore[reportUnknownMemberType]
-        jnp.all((error >= 0) & (error <= 12)),
-        "Unknown FlatPPL runtime error",
+        jnp.all((error >= 0) & (error <= max(_STATUS_MESSAGES))), _UNKNOWN_STATUS
     )
 
 
@@ -449,6 +457,7 @@ class CompiledFunction:
     _requires_x64: bool = field(repr=False)
     _gradient: bool = field(repr=False)
     _checks: str = field(repr=False)
+    _prepared: tuple[jax.Array, ...] = field(repr=False)
 
     def __init__(
         self,
@@ -466,7 +475,11 @@ class CompiledFunction:
             raise ValueError("Enzyme-JAX requires an export with entry point main")
         source = exported["stablehlo"]
         schema = freeze(
-            {key: value for key, value in exported.items() if key != "stablehlo"}
+            {
+                key: value
+                for key, value in exported.items()
+                if key not in ("stablehlo", "preparation")
+            }
         )
         inputs = [
             leaf for item in exported["inputs"] for leaf in _leaves(item["value"])
@@ -482,6 +495,8 @@ class CompiledFunction:
             )
 
         call = _compiled_call(exported, export_batch, autodiff, optimize_forward)
+        preparation = exported.get("preparation")
+        prepared = () if preparation is None else _prepare(preparation)
 
         object.__setattr__(self, "stablehlo", source)
         object.__setattr__(self, "schema", schema)
@@ -490,6 +505,7 @@ class CompiledFunction:
         object.__setattr__(self, "_requires_x64", requires_x64)
         object.__setattr__(self, "_gradient", gradient)
         object.__setattr__(self, "_checks", checks)
+        object.__setattr__(self, "_prepared", prepared)
 
     def __call__(self, *args: Any, **kwargs: Any) -> Any:
         """Evaluate the query.
@@ -539,11 +555,21 @@ class CompiledFunction:
         jacobian, outputs = jax.jacrev(evaluate, has_aux=True)(values[first])  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
         return outputs, jacobian
 
+    def _reports_checks(self) -> bool:
+        """Whether a call reports runtime checks through ``checkify.check``."""
+        status = self.schema.get("runtime_status")
+        if not status:
+            return False
+        codes = set(status.get("codes", range(1, 10)))
+        if self._checks == "nan":
+            codes.discard(PARAMETER_OUTSIDE_SET)
+        return bool(codes)
+
     def _evaluate(self, values: Mapping[str, Any]) -> Any:
         leaves: list[jax.Array | None] = [None] * self._input_count
         for item in self.schema["inputs"]:
             _pack(item["value"], values[item["name"]], leaves, item["name"])
-        result = self._call(*leaves)
+        result = self._call(*leaves, *self._prepared)
         if status := self.schema.get("runtime_status"):
             index = int(status["index"])
             error = _status_for_check(result[index])

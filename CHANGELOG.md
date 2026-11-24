@@ -7,6 +7,28 @@ tagged release.
 
 ### Added
 
+- Reverse-mode gradients, such as `LogDensity.grad`, work through `odesolve` on
+  CPython 3.14 for Linux x86_64. That target now installs an `enzyme-ad` wheel
+  that reverses `stablehlo.while` loops with data-dependent trip counts, like
+  odesolve's adaptive steps. Other targets keep the alpha 23 wheels, which
+  refuse such gradients. The bundled compiler keeps the step-size controller
+  out of odesolve derivatives, so gradients follow the ODE solution rather
+  than the solver's step choices, and they stay finite at a steady state.
+  Very near an exact steady state, such as a Lotka-Volterra equilibrium, they
+  are still inaccurate.
+
+- On CPython 3.14 for Linux x86_64, gradients of densities that compare a
+  Boolean array with an integer, as in `ifelse.(z .== 1, p, 0.0)`, are right.
+  The alpha 23 wheels on the other targets fold that comparison to `false`
+  under differentiation, so `value_and_grad` returns `(-inf, 0)` there while
+  the plain value is right; `boolean.(z)` avoids the comparison.
+
+- `corrcholesky(n)` parameters, the Cholesky factors of correlation matrices
+  that `LKJCholesky(n, eta)` is defined on, work in `Module.logdensity`,
+  generated queries and measure supports. Positions use the compiler's
+  `n(n - 1)/2` tanh partial-correlation coordinates, and bounds give each
+  factor entry's range.
+
 - Complex scalars and arrays can serve as query arguments, results, and fixed
   values. Supported complex queries use real component derivatives through JAX.
   Forward and reverse derivatives support scans with complex state and
@@ -92,6 +114,30 @@ tagged release.
   earlier draws directly or through a derived value.
 
 ### Changed
+
+- Derivatives of `eigh` eigenvectors and `svd` singular vectors are right
+  where an off-diagonal entry is exactly zero, such as at a diagonal matrix
+  or at orthogonal columns. The bundled compiler used to leave those pairs
+  unrotated, so forward and reverse derivatives of anything built on the
+  vectors came out as zero there. Eigenvalues and singular values were not
+  affected.
+
+- Compiled queries over fixed data compute their data-only likelihood
+  summaries, such as a regression's QR factorization, once when compiled
+  instead of on every call. Each call then scores without the setup's loops.
+  Fixed data that fail a runtime check of that setup raise when the query is
+  compiled, since the failure would repeat on every call.
+  Regression data declared on `reals` or `posreals` reduce like data with
+  bounded entries, whether loaded with `load_data` or bound with `Module.set`:
+  the bundled compiler proves them finite from their values.
+
+- Large fixed datasets compile in less memory: the bundled compiler holds
+  fixed data as packed vectors.
+
+- `LogDensity.grad` and `LogDensity.potential`, and their flat versions, work
+  for queries with runtime checks, such as linear solves or index ranges.
+  They functionalize the checks with `checkify` and raise a failed check
+  after the call, instead of failing to stage.
 
 - Linear solves reuse one batched LU factorization in `vmap(value_and_grad)`.
 

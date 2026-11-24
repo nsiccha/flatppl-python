@@ -152,8 +152,9 @@ class Binding:
             node has a ``"set"`` key: a named set such as ``"reals"`` or
             ``"posintegers"``, ``"interval"`` with ``"lo"`` and ``"hi"``
             (numbers, or ``"-inf"`` and ``"inf"``), ``"stdsimplex"``,
-            ``"ordered"`` or ``"zerosum"`` with ``"n"``, ``"cartpow"`` with
-            ``"of"`` and ``"shape"``,
+            ``"ordered"`` or ``"zerosum"`` with ``"n"``, ``"corrcholesky"``
+            with ``"n"`` for the n x n Cholesky factors of correlation
+            matrices, ``"cartpow"`` with ``"of"`` and ``"shape"``,
             ``"cartprod"`` with a tuple ``"of"``, ``"record"`` with
             ``"fields"`` of ``"name"`` and ``"set"``, or ``"unknown"``. An
             extent that :meth:`Module.set` binds later is ``None``.
@@ -276,6 +277,11 @@ class Parameter:
 
 # §03 sets of real n-vectors, each written as `name(n)`.
 _VECTOR_SETS = frozenset({"stdsimplex", "ordered", "zerosum"})
+# Sets of real n x n matrices written as `name(n)`: `corrcholesky(n)` holds the
+# Cholesky factors of correlation matrices, the support of LKJCholesky(n, eta).
+_MATRIX_SETS = frozenset({"corrcholesky"})
+# Every set sized by one extent `n`, which is `None` until Module.set binds it.
+_SIZED_SETS = _VECTOR_SETS | _MATRIX_SETS
 
 
 def _domain_text(domain: Mapping[str, Any]) -> str:
@@ -283,7 +289,7 @@ def _domain_text(domain: Mapping[str, Any]) -> str:
     kind = domain["set"]
     if kind == "interval":
         return f"interval({domain['lo']}, {domain['hi']})"
-    if kind in _VECTOR_SETS:
+    if kind in _SIZED_SETS:
         return f"{kind}({'?' if domain['n'] is None else domain['n']})"
     if kind == "cartpow":
         shape = ["?" if n is None else str(n) for n in domain["shape"]]
@@ -1005,8 +1011,10 @@ class Module:
                 give the same values.
             sufficient_statistics: Reduce independent likelihood factors to
                 data-only summaries. ``False`` keeps ordinary factor scoring.
-                Runtime data requires :meth:`prepare_likelihood` to retain
-                summaries across score calls.
+                Summaries of fixed data, such as a regression's QR
+                factorization, are computed once here instead of on every
+                call. Runtime data requires :meth:`prepare_likelihood` to
+                retain summaries across score calls.
             checks: How a distribution parameter outside its declared value
                 set, such as ``sigma <= 0`` for ``Normal``, reports. ``"nan"``
                 makes that call's floating-point results NaN, needs no
@@ -1021,8 +1029,9 @@ class Module:
         Raises:
             CompilationError: The module does not lower to a query.
             TypeError: ``integration`` is not an :class:`Integration`.
-            ValueError: The dtype is unsupported or needs JAX x64, or
-                ``checks`` is neither ``"nan"`` nor ``"raise"``.
+            ValueError: The dtype is unsupported or needs JAX x64,
+                ``checks`` is neither ``"nan"`` nor ``"raise"``, or the fixed
+                data fail a runtime check while their summaries are computed.
 
         Example:
             >>> import jax
@@ -1068,6 +1077,7 @@ class Module:
                         batch,
                         target_name,
                         sufficient_statistics=sufficient_statistics,
+                        prepare_fixed_data=sufficient_statistics,
                     )
                 )
             return self._exports[key]
