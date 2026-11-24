@@ -1038,7 +1038,7 @@ class Module:
                 needs an ``enzyme-ad`` build that loads Enzyme's MLIR dialect
                 (the CPython 3.14 Linux x86_64 wheel); other builds refuse
                 the compiled program. Modules without ``odesolve`` compile as
-                before. Queries that draw random values cannot use it yet.
+                before, and a query that draws random values keeps its draws.
 
         Returns:
             The compiled function.

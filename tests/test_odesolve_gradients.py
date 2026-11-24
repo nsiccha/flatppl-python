@@ -176,11 +176,6 @@ def test_sensitivity_control_keeps_the_value(values: list[float]) -> None:
     np.testing.assert_array_equal(np.asarray(controlled), np.asarray(default))
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="the compiler panics on sensitivity control in a query that draws "
-    "random values",
-)
 def test_sensitivity_control_keeps_the_draws_of_a_query_that_draws() -> None:
     query = flatppl("""
         decay(t, z, th) = [-th * z[1]]
