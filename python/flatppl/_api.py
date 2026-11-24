@@ -127,6 +127,7 @@ type _ExportKey = tuple[
     str,
     Batch | None,
     bool,
+    bool,
 ]
 
 
@@ -989,11 +990,13 @@ class Module:
         target: Literal["cpu", "gpu"] | None = None,
         checks: Literal["nan", "raise"] = "nan",
         sufficient_statistics: bool = True,
+        ode_sensitivity_control: bool = False,
     ) -> CompiledFunction:
         """Compile the module's ``inputs`` and ``outputs`` into a JAX function.
 
         The module caches exports per dtype, autodiff mode, integration
-        settings and target, so a repeated call skips the Rust compiler.
+        settings, target and ODE gradient mode, so a repeated call skips the
+        Rust compiler.
 
         Args:
             dtype: ``"float32"`` or ``"float64"``, or an equal JAX dtype.
@@ -1022,6 +1025,20 @@ class Module:
                 reports it through ``checkify`` like the other runtime checks.
                 Index, solve and seed checks raise in both modes. See
                 :doc:`/jax`.
+            ode_sensitivity_control: Differentiate ``odesolve`` on a second
+                solve whose error control includes the sensitivities, as
+                Stan's gradient does. Values still come from the value-only
+                steps and do not change. The default differentiates the
+                value-only steps, whose error control ignores the
+                sensitivities: that gradient can miss Stan's by more than the
+                solver tolerance, and by orders of magnitude at an exact
+                steady state, where the error estimate vanishes and the steps
+                grow to the output times. ``True`` runs the second solve on
+                every call, which costs several times more per call, and
+                needs an ``enzyme-ad`` build that loads Enzyme's MLIR dialect
+                (the CPython 3.14 Linux x86_64 wheel); other builds refuse
+                the compiled program. Modules without ``odesolve`` compile as
+                before; queries that draw random values do not support it.
 
         Returns:
             The compiled function.
@@ -1066,6 +1083,7 @@ class Module:
                 target_name,
                 batch,
                 sufficient_statistics,
+                ode_sensitivity_control,
             )
             if key not in self._exports:
                 self._exports[key] = json.loads(
@@ -1078,6 +1096,7 @@ class Module:
                         target_name,
                         sufficient_statistics=sufficient_statistics,
                         prepare_fixed_data=sufficient_statistics,
+                        ode_sensitivity_control=ode_sensitivity_control,
                     )
                 )
             return self._exports[key]
@@ -1153,6 +1172,7 @@ class Module:
         target: Literal["cpu", "gpu"] | None = None,
         checks: Literal["nan", "raise"] = "nan",
         sufficient_statistics: bool = True,
+        ode_sensitivity_control: bool = False,
         normal_coordinate: None = None,
         normal_coordinates: None = None,
         data_inputs: Sequence[str] = (),
@@ -1170,6 +1190,7 @@ class Module:
         target: Literal["cpu", "gpu"] | None = None,
         checks: Literal["nan", "raise"] = "nan",
         sufficient_statistics: bool = True,
+        ode_sensitivity_control: bool = False,
         normal_coordinate: str | Sequence[str],
         normal_coordinates: None = None,
         data_inputs: Sequence[str] = (),
@@ -1187,6 +1208,7 @@ class Module:
         target: Literal["cpu", "gpu"] | None = None,
         checks: Literal["nan", "raise"] = "nan",
         sufficient_statistics: bool = True,
+        ode_sensitivity_control: bool = False,
         normal_coordinate: None = None,
         normal_coordinates: Sequence[str | Sequence[str]],
         data_inputs: Sequence[str] = (),
@@ -1203,6 +1225,7 @@ class Module:
         target: Literal["cpu", "gpu"] | None = None,
         checks: Literal["nan", "raise"] = "nan",
         sufficient_statistics: bool = True,
+        ode_sensitivity_control: bool = False,
         normal_coordinate: str | Sequence[str] | None = None,
         normal_coordinates: Sequence[str | Sequence[str]] | None = None,
         data_inputs: Sequence[str] = (),
@@ -1228,6 +1251,7 @@ class Module:
             target: Lowering profile, as in :meth:`compile`.
             checks: Parameter value-set reporting, as in :meth:`compile`.
             sufficient_statistics: Likelihood reduction, as in :meth:`compile`.
+            ode_sensitivity_control: ODE gradient steps, as in :meth:`compile`.
             normal_coordinate: Select one unconstrained scalar query input for
                 a conditional Normal map. Returns a Normal companion bundle.
                 Other inputs keep their original coordinates and domains.
@@ -1321,6 +1345,7 @@ class Module:
                         target=target,
                         checks=checks,
                         sufficient_statistics=sufficient_statistics,
+                        ode_sensitivity_control=ode_sensitivity_control,
                     )
                 )
 
@@ -1332,6 +1357,7 @@ class Module:
                 target=target,
                 checks=checks,
                 sufficient_statistics=sufficient_statistics,
+                ode_sensitivity_control=ode_sensitivity_control,
             )
             if not isinstance(metadata, str):
                 return NormalCoordinatesFunction(
@@ -1362,6 +1388,7 @@ class Module:
             target=target,
             checks=checks,
             sufficient_statistics=sufficient_statistics,
+            ode_sensitivity_control=ode_sensitivity_control,
         )
 
     def _compile_coordinate_charts(
@@ -1375,6 +1402,7 @@ class Module:
         autodiff: bool = True,
         checks: Literal["nan", "raise"] = "nan",
         sufficient_statistics: bool = True,
+        ode_sensitivity_control: bool = False,
         correlation_factors: Sequence[str] = (),
     ) -> TransformedFunction:
         from ._transforms import TransformedFunction
@@ -1397,6 +1425,7 @@ class Module:
                 target=target,
                 checks=checks,
                 sufficient_statistics=sufficient_statistics,
+                ode_sensitivity_control=ode_sensitivity_control,
             )
 
         unconstrained, constrain, unconstrain = (
@@ -1418,6 +1447,7 @@ class Module:
         integration: Integration | None = None,
         optimize_forward: bool = False,
         sufficient_statistics: bool = True,
+        ode_sensitivity_control: bool = False,
     ) -> LogDensity:
         """Construct a log-density convenience object for inference.
 
@@ -1461,6 +1491,7 @@ class Module:
             integration: Numerical integration settings, as in :meth:`compile`.
             optimize_forward: Enable extra Enzyme passes, as in :meth:`compile`.
             sufficient_statistics: Reduce independent likelihood factors, as in :meth:`compile`.
+            ode_sensitivity_control: ODE gradient steps, as in :meth:`compile`.
 
         Returns:
             The log density, its gradient, starting point, coordinate maps and
@@ -1500,6 +1531,7 @@ class Module:
             integration=integration,
             optimize_forward=optimize_forward,
             sufficient_statistics=sufficient_statistics,
+            ode_sensitivity_control=ode_sensitivity_control,
         )
 
 

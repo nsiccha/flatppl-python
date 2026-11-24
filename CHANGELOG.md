@@ -17,6 +17,19 @@ tagged release.
   Very near an exact steady state, such as a Lotka-Volterra equilibrium, they
   are still inaccurate.
 
+- `ode_sensitivity_control=True` on `Module.compile`, `compile_transformed`
+  and `logdensity` differentiates `odesolve` the way Stan's gradient does: on
+  a second solve whose step-size control includes the sensitivities. Values
+  still come from the value-only steps and do not change. The default
+  differentiates those value-only steps, whose error control ignores the
+  sensitivities, so its gradient can miss by more than the solver tolerance,
+  and by orders of magnitude at an exact steady state such as a
+  Lotka-Volterra equilibrium. The option runs the second solve on every call,
+  so a two-state Lotka-Volterra density takes about four times as long, value
+  alone or with its gradient. It needs CPython 3.14 on Linux x86_64, whose
+  `enzyme-ad` wheel loads Enzyme's MLIR dialect; the other targets' wheels
+  refuse such a program. Queries that draw random values do not support it.
+
 - On CPython 3.14 for Linux x86_64, gradients of densities that compare a
   Boolean array with an integer, as in `ifelse.(z .== 1, p, 0.0)`, are right.
   The alpha 23 wheels on the other targets fold that comparison to `false`
