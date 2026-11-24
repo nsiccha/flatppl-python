@@ -17,6 +17,12 @@ tagged release.
   Very near an exact steady state, such as a Lotka-Volterra equilibrium, they
   are still inaccurate.
 
+- On CPython 3.14 for Linux x86_64, gradients of densities that compare a
+  Boolean array with an integer, as in `ifelse.(z .== 1, p, 0.0)`, are right.
+  The alpha 23 wheels on the other targets fold that comparison to `false`
+  under differentiation, so `value_and_grad` returns `(-inf, 0)` there while
+  the plain value is right; `boolean.(z)` avoids the comparison.
+
 - `corrcholesky(n)` parameters, the Cholesky factors of correlation matrices
   that `LKJCholesky(n, eta)` is defined on, work in `Module.logdensity`,
   generated queries and measure supports. Positions use the compiler's
