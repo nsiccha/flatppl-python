@@ -163,4 +163,5 @@ class Module:
         target: str = "cpu",
         sufficient_statistics: bool = True,
         prepare_fixed_data: bool = False,
+        ode_sensitivity_control: bool = False,
     ) -> str: ...

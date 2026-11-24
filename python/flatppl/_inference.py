@@ -446,6 +446,7 @@ def build(
     integration: Integration | None,
     optimize_forward: bool,
     sufficient_statistics: bool = True,
+    ode_sensitivity_control: bool = False,
     correlation_factors: tuple[str, ...] = (),
     initial_fields: Mapping[str, float] | None = None,
 ) -> LogDensity:
@@ -464,6 +465,7 @@ def build(
         integration=integration,
         optimize_forward=optimize_forward,
         sufficient_statistics=sufficient_statistics,
+        ode_sensitivity_control=ode_sensitivity_control,
         correlation_factors=correlation_factors,
     )
     (item,) = transformed.constrained.schema["inputs"]
