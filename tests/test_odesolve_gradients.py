@@ -25,16 +25,16 @@ import pytest
 
 from flatppl import flatppl
 
-# pyproject.toml declares a wheel with this capability only for CPython 3.14 on
-# Linux x86_64. The other targets' alpha 23 wheels refuse with "WhileOp does not
-# have known iteration count for cache removal".
-pytestmark = pytest.mark.skipif(
+# Every enzyme-ad wheel pyproject.toml declares reverses adaptive loops. Only the
+# CPython 3.14 Linux x86_64 wheel loads Enzyme's MLIR dialect, which
+# ode_sensitivity_control=True needs; the others refuse such a program.
+needs_enzyme_dialect = pytest.mark.skipif(
     not (
         sys.version_info[:2] == (3, 14)
         and sys.platform == "linux"
         and platform.machine() == "x86_64"
     ),
-    reason="this target's declared enzyme-ad wheel cannot reverse adaptive loops",
+    reason="this target's declared enzyme-ad wheel does not load Enzyme's dialect",
 )
 
 TIMES = np.array([0.5, 1.0, 2.0, 4.0])
@@ -66,7 +66,9 @@ def exact_gradient(k: float, y0: float) -> np.ndarray:
     return np.array([np.sum(score * -TIMES * mean), np.sum(score * decayed)])
 
 
-@pytest.mark.parametrize("sensitivity_control", [False, True])
+@pytest.mark.parametrize(
+    "sensitivity_control", [False, pytest.param(True, marks=needs_enzyme_dialect)]
+)
 @pytest.mark.parametrize(("k", "y0"), [(0.4, 1.9), (0.7, 2.2), (1.3, 1.1)])
 def test_a_reverse_gradient_through_odesolve_matches_the_exact_solution(
     k: float, y0: float, sensitivity_control: bool
@@ -142,6 +144,7 @@ def lv_point(values: list[float]) -> dict[str, jax.Array]:
     }
 
 
+@needs_enzyme_dialect
 def test_sensitivity_control_gives_the_exact_gradient_at_a_steady_state() -> None:
     density = flatppl(LOTKA_VOLTERRA).logdensity(
         dtype="float64", unconstrained=False, ode_sensitivity_control=True
@@ -160,6 +163,7 @@ def test_sensitivity_control_gives_the_exact_gradient_at_a_steady_state() -> Non
     np.testing.assert_allclose(reverse, forward, rtol=1e-12)
 
 
+@needs_enzyme_dialect
 @pytest.mark.parametrize(
     "values",
     [[1.0] * 6, [0.9, 1.1, 1.05, 0.95, 1.2, 0.8]],
@@ -176,6 +180,7 @@ def test_sensitivity_control_keeps_the_value(values: list[float]) -> None:
     np.testing.assert_array_equal(np.asarray(controlled), np.asarray(default))
 
 
+@needs_enzyme_dialect
 def test_sensitivity_control_keeps_the_draws_of_a_query_that_draws() -> None:
     query = flatppl("""
         decay(t, z, th) = [-th * z[1]]

@@ -3,28 +3,14 @@
 ``z .== 1`` on Boolean ``z`` lowers to a conversion followed by a comparison.
 The alpha 23 ``enzyme-ad`` wheels fold that comparison to ``false`` when they
 differentiate, so ``value_and_grad`` returns ``(-inf, 0)`` while the primal is
-right. The wheel declared for CPython 3.14 on Linux x86_64 keeps it.
+right. Every wheel pyproject.toml declares keeps it.
 """
-
-import platform
-import sys
 
 import jax
 import numpy as np
 import pytest
 
 from flatppl import flatppl
-
-# pyproject.toml declares a wheel with this fix only for CPython 3.14 on Linux
-# x86_64. The other targets' alpha 23 wheels return (-inf, 0).
-pytestmark = pytest.mark.skipif(
-    not (
-        sys.version_info[:2] == (3, 14)
-        and sys.platform == "linux"
-        and platform.machine() == "x86_64"
-    ),
-    reason="this target's declared enzyme-ad wheel folds Boolean comparisons",
-)
 
 # Two animals: Bernoulli(p) observations of the ones flagged by z.
 POSTERIOR = """
