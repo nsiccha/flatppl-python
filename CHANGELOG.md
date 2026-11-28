@@ -7,6 +7,10 @@ tagged release.
 
 ### Added
 
+- Compiled queries prepare eligible fixed-data likelihood summaries once and
+  reuse them for scores, gradients and batches. `prepare_fixed_data=False`
+  keeps reductions in the score.
+
 - Reverse-mode gradients, such as `LogDensity.grad`, work through `odesolve` on
   every supported target: CPython 3.12 to 3.15 on Linux x86_64, Linux ARM64 and
   macOS ARM64. Each installs an `enzyme-ad` wheel that reverses
@@ -139,14 +143,10 @@ tagged release.
   vectors came out as zero there. Eigenvalues and singular values were not
   affected.
 
-- Compiled queries over fixed data compute their data-only likelihood
-  summaries, such as a regression's QR factorization, once when compiled
-  instead of on every call. Each call then scores without the setup's loops.
-  Fixed data that fail a runtime check of that setup raise when the query is
-  compiled, since the failure would repeat on every call.
-  Regression data declared on `reals` or `posreals` reduce like data with
-  bounded entries, whether loaded with `load_data` or bound with `Module.set`:
-  the bundled compiler proves them finite from their values.
+- Regression data declared on `reals` or `posreals` get prepared summaries
+  like data with bounded entries, whether loaded with `load_data` or bound
+  with `Module.set`: the bundled compiler proves them finite from their
+  values.
 
 - Large fixed datasets compile in less memory: the bundled compiler holds
   fixed data as packed vectors.
@@ -155,6 +155,15 @@ tagged release.
   for queries with runtime checks, such as linear solves or index ranges.
   They functionalize the checks with `checkify` and raise a failed check
   after the call, instead of failing to stage.
+
+- Matrix likelihoods pair each observation with its parameter when a
+  higher-order function computes that parameter.
+
+- Compiling grouped Normal likelihoods with repeated values uses less memory.
+
+- Normal likelihoods can pool observations with identical fixed predictor rows
+  and a shared scale. Long GPU scans with compact real state can execute four
+  steps per loop.
 
 - Linear solves reuse one batched LU factorization in `vmap(value_and_grad)`.
 
