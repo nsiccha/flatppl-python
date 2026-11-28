@@ -446,6 +446,7 @@ def build(
     integration: Integration | None,
     optimize_forward: bool,
     sufficient_statistics: bool = True,
+    prepare_fixed_data: bool = True,
     ode_sensitivity_control: bool = False,
     correlation_factors: tuple[str, ...] = (),
     initial_fields: Mapping[str, float] | None = None,
@@ -458,6 +459,7 @@ def build(
     query = module
     if measure is not None:
         query, parameters, fixed = _query(module, measure, bounds)
+        query._fixed_data = module._fixed_data  # pyright: ignore[reportPrivateUsage]
     transformed = query._compile_coordinate_charts(  # pyright: ignore[reportPrivateUsage]
         logdensity=jacobian,
         dtype=dtype,
@@ -465,6 +467,7 @@ def build(
         integration=integration,
         optimize_forward=optimize_forward,
         sufficient_statistics=sufficient_statistics,
+        prepare_fixed_data=prepare_fixed_data,
         ode_sensitivity_control=ode_sensitivity_control,
         correlation_factors=correlation_factors,
     )
