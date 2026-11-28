@@ -133,7 +133,7 @@ tagged release.
 
 - Derivatives of real symmetric `eigh` and `eigvalsh` use a closed-form rule
   instead of differentiating the Jacobi iteration. A 30 by 30 matrix's value
-  and gradient take about 3.5 ms instead of about 175 ms. Values do not
+  and gradient take about 0.5 ms instead of about 35 ms. Values do not
   change.
 
 - Derivatives of `eigh` eigenvectors and `svd` singular vectors are right
